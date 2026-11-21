@@ -162,12 +162,21 @@ int main(int argc, char **argv)
     auto legacy = wrapper;
     legacy.replace("GameLauncher(){", "    INJECT_CR=\"LD_PRELOAD=$HOME/.local/share/CloudRedirect/cloud_redirect.so\"\nGameLauncher(){");
     legacy.replace("    source ", "    echo \"Loaded CloudRedirect\" & export $INJECT_CR &> /dev/null\n    source ");
-    CHECK(writeFile(launcher, legacy));
+    // A Headcrab update can replace our block with its own CloudRedirect wrapper.
     CHECK(deployer.deploy());
-    CHECK(launch("first.so:second.so", {"-silent"}));
-    CHECK(readFile(result) == installed.toUtf8() + ":first.so:second.so\n" + audit + "\n-silent\n");
+    CHECK(QFile::setPermissions(launcher, launcherMode | QFileDevice::WriteOwner));
+    CHECK(writeFile(launcher, legacy));
+    deployer.checkPrerequisites();
+    CHECK(deployer.launcherConfigured() && !deployer.launcherRepairAvailable());
+    CHECK(deployer.update());
+    CHECK(readFile(launcher) == legacy);
+    CHECK(launch("", {"-silent"}));
+    CHECK(readFile(result) == installed.toUtf8() + "\n" + audit + "\n-silent\n");
     CHECK(deployer.undeploy());
     CHECK(readFile(launcher) == legacy);
+    CHECK(deployer.deploy());
+    CHECK(readFile(launcher) == legacy);
+    CHECK(deployer.undeploy());
 
     auto unknown = wrapper;
     unknown.replace("    source ", "    export LD_PRELOAD=custom.so\n    source ");

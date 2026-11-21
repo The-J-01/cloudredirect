@@ -16,9 +16,13 @@ The UI checks the library and CLI against the installed SLSsteam architecture du
 
 ## Steam launcher
 
-The Setup page installs the library and CLI, then configures automatic loading for recognized native Headcrab wrappers. **Repair Steam Launcher** adds the preload to an existing installation, or restores it after Headcrab replaces the wrapper. Setup distinguishes installed files from a configured launcher. Configuration can be confirmed by restarting Steam and checking that its client process maps both CloudRedirect and SLSsteam.
+Headcrab selects its CloudRedirect launcher when its installer finds `DisableCloud: no`. With a recognized native CloudRedirect launcher pointing to the deployed library, Setup installs the binaries and leaves the launcher to Headcrab. The **Configured** status describes the launcher on disk. Restart Steam and check that the client process maps both CloudRedirect and SLSsteam to confirm loading.
 
-Headcrab selects its CloudRedirect wrapper when the installer finds the literal setting `DisableCloud: no`. Its regular wrapper exports `LD_AUDIT` for SLSsteam and does not set `LD_PRELOAD`. Either wrapper can be present with matching CloudRedirect files on disk. The managed change preserves the incoming preload list and the Headcrab audit settings, and is removed when CloudRedirect is undeployed. Steam's `client.sh` is left to Valve and Headcrab. If an update replaces the wrapper, run Refresh in Setup and use Repair Steam Launcher if offered. Unknown or custom launchers and a Steam installation inside the Steam Flatpak retain their own launch integration.
+**Repair Steam Launcher** remains available for recognized SLSsteam-only native launchers. It adds a reversible block and preserves existing preload entries. Unknown or custom launchers and Steam Flatpak launchers retain their own launch integration.
+
+Headcrab's experimental `halfbaked` branch installs the Preview 3 Flatpak and selects the appropriate launcher. Open Setup and deploy the x86-64 library and CLI from the app after installation. The older Headcrab installer can download i386 binaries, so check the deployed architecture after running it.
+
+Preview 4 installations keep their existing managed block when updating CloudRedirect. If Headcrab later replaces the wrapper with its CloudRedirect version, use Refresh in Setup. A matching Headcrab launcher shows as configured and the app will leave it in place. Avoid adding a second preload line by hand. If removing CloudRedirect before switching launchers, Setup restores the original wrapper for blocks it still owns.
 
 ## Runtime changes
 

@@ -1,4 +1,5 @@
 #include "steam_launcher.h"
+#include "utils.h"
 
 #include <QFile>
 #include <QFileInfo>
@@ -20,6 +21,7 @@ struct Launcher
     QByteArray original;
     QByteArray configured;
     bool managed = false;
+    bool headcrabConfigured = false;
 };
 
 QByteArray preloadBlock(const QString &library, const QByteArray &legacy)
@@ -107,6 +109,13 @@ Launcher readLauncher(const QString &path, const QString &library)
         (legacyLine >= 0 ? definitions != 1 || legacyLine != anchor - 1 : definitions != 0))
         return launcher;
 
+    // Headcrab already manages this wrapper. An existing Preview 4 block
+    // still goes through the managed path so removal can restore its source.
+    if (!launcher.managed && legacyLine >= 0) {
+        launcher.headcrabConfigured = library == realHomePath() + "/.local/share/CloudRedirect/cloud_redirect.so";
+        return launcher;
+    }
+
     if (legacyLine >= 0)
         lines[legacyLine] = preloadBlock(library, lines[legacyLine]).chopped(1);
     else
@@ -140,6 +149,7 @@ bool replaceLauncher(const Launcher &launcher, const QByteArray &contents)
 SteamLauncher::State SteamLauncher::inspect(const QString &path, const QString &library)
 {
     const auto launcher = readLauncher(path, library);
+    if (launcher.headcrabConfigured) return State::Configured;
     if (launcher.configured.isEmpty()) return State::Unsupported;
     return launcher.managed ? State::Configured : State::NeedsRepair;
 }
@@ -147,7 +157,8 @@ SteamLauncher::State SteamLauncher::inspect(const QString &path, const QString &
 bool SteamLauncher::repair(const QString &path, const QString &library)
 {
     const auto launcher = readLauncher(path, library);
-    return !launcher.configured.isEmpty() && replaceLauncher(launcher, launcher.configured);
+    return launcher.headcrabConfigured ||
+        (!launcher.configured.isEmpty() && replaceLauncher(launcher, launcher.configured));
 }
 
 bool SteamLauncher::remove(const QString &path, const QString &library)
