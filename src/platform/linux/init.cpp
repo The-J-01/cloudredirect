@@ -113,13 +113,17 @@ static void Notify(const char* msg, bool critical = false)
 {
     if (!NotificationsEnabled()) return;
 
+    const std::string cli = XdgDataHome() + "/CloudRedirect/cloud_redirect_cli";
     pid_t pid = fork();
     if (pid == 0) {
-        // Child: exec notify-send and exit
         if (critical)
             execlp("notify-send", "notify-send", "-u", "critical", "CloudRedirect", msg, nullptr);
         else
             execlp("notify-send", "notify-send", "-t", "5000", "-u", "normal", "CloudRedirect", msg, nullptr);
+
+        // Steam Runtime ships libnotify but may omit notify-send.
+        execl(cli.c_str(), "cloud_redirect_cli", "--startup-notification",
+              critical ? "critical" : "normal", msg, nullptr);
         _exit(1);
     }
     // Parent: don't wait -- reap asynchronously via SIGCHLD (default ignore)

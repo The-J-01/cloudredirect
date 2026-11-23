@@ -571,6 +571,16 @@ endif()
 
 # Hook lifecycle and AutoCloud library selection run in both client architectures.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND (NOT LINUX_32BIT OR CMAKE_SIZEOF_VOID_P EQUAL 4))
+    add_library(linux_notify_fixture SHARED tests/linux_notify_fixture.c)
+    set_target_properties(linux_notify_fixture PROPERTIES OUTPUT_NAME notify SOVERSION 4
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/notify-fixture")
+    foreach(urgency IN ITEMS normal critical)
+        add_test(NAME linux_startup_notification_${urgency} COMMAND ${CMAKE_COMMAND} -E env
+            "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:linux_notify_fixture>"
+            "DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null"
+            $<TARGET_FILE:cloud_redirect_cli> --startup-notification ${urgency} ${urgency})
+    endforeach()
+
     foreach(test IN ITEMS linux_hook_lifecycle_tests linux_init_failure_tests)
         add_executable(${test} tests/${test}.cpp)
         target_include_directories(${test} PRIVATE src/common src/platform/linux)

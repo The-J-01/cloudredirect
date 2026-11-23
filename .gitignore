@@ -38,3 +38,4 @@ release-*/
 !tests/linux_init_failure_tests.cpp
 !tests/linux_hook_dispatch_tests.cpp
 !tests/linux_inline_hook_tests.cpp
+!tests/linux_notify_fixture.c

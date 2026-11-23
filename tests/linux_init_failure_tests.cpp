@@ -1,5 +1,7 @@
 #include "../src/platform/linux/init.cpp"
+#include <cerrno>
 #include <sys/mman.h>
+#include <sys/wait.h>
 #include <stdexcept>
 
 static void* transport[10];
@@ -167,6 +169,8 @@ int main(int argc, char** argv) {
     if (stage == Success) {
         if (!g_initialized.load() || !enabled || transport[5] != reinterpret_cast<void*>(2))
             return 6;
+        if (waitpid(-1, nullptr, WNOHANG) != -1 || errno != ECHILD)
+            return 10;
         OnUnload();
     }
     if (stage == RemovalFailure) {

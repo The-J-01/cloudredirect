@@ -10,6 +10,39 @@
 
 typedef int (*CliMainFn)(int argc, char** argv);
 
+struct NotifyNotification;
+
+static int showStartupNotification(const char* urgency, const char* message) {
+    const bool critical = strcmp(urgency, "critical") == 0;
+    if (!critical && strcmp(urgency, "normal") != 0)
+        return 2;
+
+    void* lib = dlopen("libnotify.so.4", RTLD_NOW | RTLD_LOCAL);
+    if (!lib)
+        return 1;
+    auto init = reinterpret_cast<int (*)(const char*)>(dlsym(lib, "notify_init"));
+    auto create = reinterpret_cast<NotifyNotification* (*)(const char*, const char*, const char*)>(
+        dlsym(lib, "notify_notification_new"));
+    auto setUrgency = reinterpret_cast<void (*)(NotifyNotification*, int)>(
+        dlsym(lib, "notify_notification_set_urgency"));
+    auto setTimeout = reinterpret_cast<void (*)(NotifyNotification*, int)>(
+        dlsym(lib, "notify_notification_set_timeout"));
+    struct GError;
+    auto show = reinterpret_cast<int (*)(NotifyNotification*, GError**)>(
+        dlsym(lib, "notify_notification_show"));
+    if (!init || !create || !setUrgency || !setTimeout || !show || !init("CloudRedirect"))
+        return 1;
+
+    NotifyNotification* notification = create("CloudRedirect", message, nullptr);
+    if (!notification)
+        return 1;
+    setUrgency(notification, critical ? 2 : 1);
+    if (!critical)
+        setTimeout(notification, 5000);
+    // The short-lived notification process owns libnotify and the notification.
+    return show(notification, nullptr) ? 0 : 1;
+}
+
 // Resolve cloud_redirect.so next to this executable, else the loader search path.
 static void resolveSoPath(char* out, size_t outSize) {
     char exePath[PATH_MAX];
@@ -30,6 +63,9 @@ static void resolveSoPath(char* out, size_t outSize) {
 }
 
 int main(int argc, char** argv) {
+    if (argc >= 2 && strcmp(argv[1], "--startup-notification") == 0)
+        return argc == 4 ? showStartupNotification(argv[2], argv[3]) : 2;
+
     char soPath[PATH_MAX];
     resolveSoPath(soPath, sizeof(soPath));
 

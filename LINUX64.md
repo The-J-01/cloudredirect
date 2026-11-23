@@ -20,6 +20,8 @@ Headcrab selects its CloudRedirect launcher when its installer finds `DisableClo
 
 **Repair Steam Launcher** remains available for recognized SLSsteam-only native launchers. It adds a reversible block and preserves existing preload entries. Unknown or custom launchers and Steam Flatpak launchers retain their own launch integration.
 
+Steam can restore its packaged `steam.sh` during an update. If that happens, deployed files may still be present even though Steam no longer loads them. When you manage your own launcher, set `LD_PRELOAD` in the command that starts Steam and retain existing preload entries and any `LD_AUDIT` setting.
+
 Headcrab's experimental `halfbaked` branch installs the Preview 3 Flatpak and selects the appropriate launcher. Open Setup and deploy the x86-64 library and CLI from the app after installation. The older Headcrab installer can download i386 binaries, so check the deployed architecture after running it.
 
 Preview 4 installations keep their existing managed block when updating CloudRedirect. If Headcrab later replaces the wrapper with its CloudRedirect version, use Refresh in Setup. A matching Headcrab launcher shows as configured and the app will leave it in place. Avoid adding a second preload line by hand. If removing CloudRedirect before switching launchers, Setup restores the original wrapper for blocks it still owns.
@@ -31,6 +33,8 @@ The x86-64 path resolves protobuf helpers and KeyValues functions through unique
 Hooks pass through to Steam until initialization completes. Failed initialization disables interception and removes recorded vtable and optional observer patches. Page permissions are saved per page and restored after each patch. Cleanup failures retain their state for retry and are reported explicitly.
 
 The launcher keeps `LD_PRELOAD` for Steam's pressure-vessel handoff. A launcher that exits before mapping `steamclient.so` cancels its wait during shutdown. The x86-64 transport resolver requires a single vtable candidate with all three hook entries in executable mappings. RemoteStorage discovery accepts an existing SLSsteam entry detour.
+
+If Steam Runtime has no `notify-send`, CloudRedirect can send the startup notification through the deployed CLI and the runtime's `libnotify`.
 
 On Linux, AutoCloud looks for a Proton prefix in the library containing the game's app manifest. This covers mounted external libraries whose paths appear in `libraryfolders.vdf`. The Steam client and host CLI need access to that mount.
 
@@ -54,4 +58,4 @@ These probes passed against Steam builds 1792618285 and 1794536281. The protobuf
 
 On Arch Linux, a Gamescope 3.17 session with and without Steam integration started an isolated Steam Runtime 4 container and ran the matching CLI. The compositor exited abnormally after the child finished, including in control runs without the preload. This does not establish the cause of the SteamOS report.
 
-Earlier live validation on 1792618285 with SLSsteam confirmed five downloads and an upload. A Lenovo Legion Go S user reported that a manual preload reached the client in SteamOS Desktop and Gaming Mode, including after reboot. The managed launcher change still needs an on-device check. Live sync on 1794536281 and a legacy i386 Steam session also still need testing. [Device report](https://github.com/crghofficial/cloudredirect/issues/5#issuecomment-7062676468) The Flatpak preview was installed and launched in isolation. Future clients may need ABI verification when Valve changes internal layouts.
+Live validation on Arch Linux with SLSsteam confirmed downloads and an upload on 1792618285. On 1794536281, Steam's normal startup activated both hook sets and served cloud file downloads. Upload and conflict handling were not exercised on that build. A Lenovo Legion Go S user reported that a manual preload reached the client in SteamOS Desktop and Gaming Mode, including after reboot. The managed launcher change and notification fallback still need SteamOS device testing. A live legacy i386 Steam session remains unverified. [Device report](https://github.com/crghofficial/cloudredirect/issues/5#issuecomment-7062676468) The Flatpak preview was installed and launched in isolation. Future clients may need ABI verification when Valve changes internal layouts.
