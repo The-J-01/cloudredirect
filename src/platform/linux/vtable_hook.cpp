@@ -433,7 +433,15 @@ bool VtableHook::RemoveHooks(VtableInfo& info)
 {
     if (!info.vtable) return true;
     if (!info.protection.MakeWritable()) {
-        Log::Error("mprotect RW failed during hook removal");
+        const int error = errno;
+        // Steam can unmap its client before the preload destructor runs.
+        // No slot or page permissions remain to restore in that case.
+        if (error == ENOMEM && info.protection.AllPagesUnmapped()) {
+            info = {};
+            Log::Info("Transport hook pages already unmapped during cleanup");
+            return true;
+        }
+        Log::Error("mprotect RW failed during hook removal (errno=%d)", error);
         return false;
     }
     void* expected = reinterpret_cast<void*>(&hook_BYieldingSend);
@@ -753,7 +761,13 @@ bool VtableHook::RemoveCloudEnabledHook(CloudEnabledHookInfo& info)
 {
     if (!info.vtable) return true;
     if (!info.protection.MakeWritable()) {
-        Log::Error("mprotect RW failed during RemoteStorage hook removal");
+        const int error = errno;
+        if (error == ENOMEM && info.protection.AllPagesUnmapped()) {
+            info = {};
+            Log::Info("RemoteStorage hook page already unmapped during cleanup");
+            return true;
+        }
+        Log::Error("mprotect RW failed during RemoteStorage hook removal (errno=%d)", error);
         return false;
     }
     void* expected = reinterpret_cast<void*>(&hook_IsCloudEnabledForApp);

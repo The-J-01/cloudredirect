@@ -571,6 +571,15 @@ endif()
 
 # Hook lifecycle and AutoCloud library selection run in both client architectures.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND (NOT LINUX_32BIT OR CMAKE_SIZEOF_VOID_P EQUAL 4))
+    add_executable(linux_stats_seed_shutdown_tests tests/linux_stats_seed_shutdown_tests.cpp
+        $<TARGET_OBJECTS:cloud_redirect>)
+    target_include_directories(linux_stats_seed_shutdown_tests PRIVATE src/common)
+    target_compile_definitions(linux_stats_seed_shutdown_tests PRIVATE _GLIBCXX_USE_CXX11_ABI=0)
+    target_link_libraries(linux_stats_seed_shutdown_tests PRIVATE
+        $<TARGET_PROPERTY:cloud_redirect,LINK_LIBRARIES>)
+    add_test(NAME linux_stats_seed_shutdown_tests COMMAND linux_stats_seed_shutdown_tests)
+    set_tests_properties(linux_stats_seed_shutdown_tests PROPERTIES TIMEOUT 3)
+
     add_library(linux_notify_fixture SHARED tests/linux_notify_fixture.c)
     set_target_properties(linux_notify_fixture PROPERTIES OUTPUT_NAME notify SOVERSION 4
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/notify-fixture")
@@ -597,7 +606,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND (NOT LINUX_32BIT OR CMAKE_SIZEOF_VOID_
     endforeach()
     target_sources(linux_hook_lifecycle_tests PRIVATE src/platform/linux/log.cpp)
     target_link_options(linux_hook_lifecycle_tests PRIVATE -Wl,--wrap=mprotect)
-    foreach(scenario IN ITEMS success failed-install failed-seal failed-remove failed-remove-seal other-hook)
+    foreach(scenario IN ITEMS success failed-install failed-seal failed-remove failed-remove-seal
+                              other-hook unmapped partly-unmapped)
         add_test(NAME linux_hook_${scenario} COMMAND linux_hook_lifecycle_tests ${scenario})
     endforeach()
     foreach(stage RANGE 0 8)

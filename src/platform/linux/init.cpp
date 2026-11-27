@@ -33,6 +33,7 @@ const char* CR_GetVersion() { return CR_VERSION_STRING; }
 #include <cstdint>
 #include <pthread.h>
 #include <exception>
+#include <chrono>
 
 static VtableHook::VtableInfo g_vtableInfo{};
 static VtableHook::CloudEnabledHookInfo g_cloudEnabledInfo{};
@@ -179,15 +180,26 @@ static void CleanLdPreload()
 
 static bool RemoveInstalledHooks(bool drainPendingPlaytime)
 {
+    const auto start = std::chrono::steady_clock::now();
     bool removed = CloudHooks::BeginShutdown(drainPendingPlaytime);
+    const auto hooksStopped = std::chrono::steady_clock::now();
     if (g_hookCleanupPending) {
         CloudStorage::Shutdown();
         HttpServer::Stop();
     }
+    const auto storageStopped = std::chrono::steady_clock::now();
     removed = VtableHook::RemoveCloudEnabledHook(g_cloudEnabledInfo) && removed;
     removed = VtableHook::RemoveHooks(g_vtableInfo) && removed;
     g_initialized.store(false, std::memory_order_release);
     g_hookCleanupPending = !removed;
+    if (drainPendingPlaytime) {
+        using namespace std::chrono;
+        Log::Info("Shutdown pid=%d: hook drain=%lld ms, storage/HTTP=%lld ms, vtable cleanup=%lld ms",
+            getpid(),
+            static_cast<long long>(duration_cast<milliseconds>(hooksStopped - start).count()),
+            static_cast<long long>(duration_cast<milliseconds>(storageStopped - hooksStopped).count()),
+            static_cast<long long>(duration_cast<milliseconds>(steady_clock::now() - storageStopped).count()));
+    }
     return removed;
 }
 

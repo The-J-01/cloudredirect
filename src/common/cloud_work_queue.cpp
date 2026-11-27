@@ -651,7 +651,10 @@ void Init(ICloudProvider* provider) {
 void Init(ICloudProvider* provider, Reporter reporter) {
     // Reuse existing workers if still running.
     if (g_workerRunning.load()) {
-        g_workerRunning = false;
+        {
+            std::lock_guard<std::mutex> lock(g_queueMutex);
+            g_workerRunning = false;
+        }
         g_queueCV.notify_all();
         for (auto& t : g_workerThreads) {
             if (t.joinable()) t.join();
@@ -703,20 +706,26 @@ void SetWorkerThreadCount(int count) {
 
 void Shutdown() {
     g_shuttingDown.store(true, std::memory_order_seq_cst);
-    g_workerRunning = false;
+    {
+        // Change the wait predicate under the same mutex used by the workers.
+        std::lock_guard<std::mutex> lock(g_queueMutex);
+        g_workerRunning = false;
+    }
     g_queueCV.notify_all();
 
-    // 5s bounded wait for workers; detach stragglers blocked on cloud I/O.
+#ifdef _WIN32
+    // Windows retains the timed wait for workers blocked on cloud I/O.
     auto joinDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+#endif
     for (auto& t : g_workerThreads) {
         if (!t.joinable()) continue;
+#ifdef _WIN32
         auto remaining = joinDeadline - std::chrono::steady_clock::now();
         if (remaining <= std::chrono::milliseconds(0)) {
             LOG("[CloudStorage] WorkQueue shutdown: detaching worker (join deadline exceeded)");
             t.detach();
             continue;
         }
-#ifdef _WIN32
         DWORD waitMs = (DWORD)std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count();
         HANDLE h = t.native_handle();
         if (WaitForSingleObject(h, waitMs) == WAIT_TIMEOUT) {
@@ -726,11 +735,8 @@ void Shutdown() {
             t.join();
         }
 #else
-        // No timed join on POSIX; best-effort sleep then join.
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        if (t.joinable()) {
-            t.join();
-        }
+        // Keep workers joined before the provider is destroyed.
+        t.join();
 #endif
     }
     g_workerThreads.clear();

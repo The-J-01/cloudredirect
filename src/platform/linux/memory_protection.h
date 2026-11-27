@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cinttypes>
+#include <cerrno>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -61,12 +62,30 @@ struct MemoryProtection {
 
     bool MakeWritable() const {
         const long pageSize = sysconf(_SC_PAGESIZE);
+        if (count == 0 || pageSize <= 0) {
+            errno = EINVAL;
+            return false;
+        }
         for (size_t i = 0; i < count; ++i) {
             if (mprotect(reinterpret_cast<void*>(pages[i]), pageSize, permissions[i] | PROT_WRITE) != 0) {
+                const int error = errno;
                 Restore();
+                errno = error;
                 return false;
             }
         }
-        return count != 0;
+        return true;
+    }
+
+    bool AllPagesUnmapped() const {
+        const long pageSize = sysconf(_SC_PAGESIZE);
+        if (count == 0 || pageSize <= 0)
+            return false;
+        for (size_t i = 0; i < count; ++i) {
+            unsigned char resident;
+            if (mincore(reinterpret_cast<void*>(pages[i]), pageSize, &resident) == 0 || errno != ENOMEM)
+                return false;
+        }
+        return true;
     }
 };

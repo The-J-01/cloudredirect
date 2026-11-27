@@ -95,7 +95,14 @@ int main(int argc, char** argv) {
     CHECK(Protection(remote) == (PROT_READ | PROT_WRITE));
     failCall = 0;
     CHECK(VtableHook::RemoveCloudEnabledHook(cloud));
-    munmap(remote, page);
+    if (!strcmp(argv[1], "unmapped")) {
+        CHECK(VtableHook::InstallCloudEnabledHook(remote, cloud));
+        CHECK(munmap(remote, page) == 0);
+        CHECK(VtableHook::RemoveCloudEnabledHook(cloud));
+        CHECK(!cloud.vtable);
+    } else {
+        CHECK(munmap(remote, page) == 0);
+    }
     protectCalls = 0;
     VtableHook::VtableInfo info{};
     if (!strcmp(argv[1], "failed-install"))
@@ -109,6 +116,18 @@ int main(int argc, char** argv) {
         CHECK(installed);
         CHECK(Protection(area) == PROT_READ);
         CHECK(Protection(area + page) == (PROT_READ | PROT_EXEC));
+    }
+    if (!strcmp(argv[1], "unmapped") || !strcmp(argv[1], "partly-unmapped")) {
+        CHECK(munmap(area + page, page) == 0);
+        if (!strcmp(argv[1], "partly-unmapped")) {
+            CHECK(!VtableHook::RemoveHooks(info));
+            CHECK(info.vtable);
+            CHECK(Protection(area) == PROT_READ);
+        }
+        CHECK(munmap(area, page) == 0);
+        CHECK(VtableHook::RemoveHooks(info));
+        CHECK(!info.vtable);
+        return 0;
     }
     if (!strcmp(argv[1], "failed-remove") || !strcmp(argv[1], "failed-remove-seal")) {
         failCall = protectCalls + (!strcmp(argv[1], "failed-remove") ? 1 : 3);

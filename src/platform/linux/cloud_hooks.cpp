@@ -615,7 +615,7 @@ static void EnsureInitialized() {
             MetadataSync::syncPlaytime.load(std::memory_order_relaxed)) {
             g_seedThread = std::thread([] {
                 if (!g_shuttingDown.load(std::memory_order_acquire))
-                    StatsStore::SeedApps(CloudIntercept::GetNamespaceApps());
+                    StatsStore::SeedApps(CloudIntercept::GetNamespaceApps(), &g_shuttingDown);
                 {
                     std::lock_guard<std::mutex> lk(g_seedExitMtx);
                     g_seedExited.store(true, std::memory_order_release);
@@ -1073,7 +1073,7 @@ bool CloudHooks::BeginShutdown(bool drainPendingPlaytime) {
         if (g_seedExited.load(std::memory_order_acquire)) {
             g_seedThread.join();
         } else {
-            LOG("[CloudHooks] seed wedged in network call -- detaching");
+            LOG("[CloudHooks] seed still running after 5 seconds -- detaching");
             g_seedThread.detach();
         }
     }

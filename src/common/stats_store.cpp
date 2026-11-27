@@ -1809,8 +1809,13 @@ void ResetStats(uint32_t appId) {
     g_dirty[appId] = false;
 }
 
+static bool SeedStopping(const std::atomic<bool>* stopping) {
+    return stopping && stopping->load(std::memory_order_acquire);
+}
+
 // Migrate legacy per-app blobs into the consolidated account blob.
-static void MigrateLegacyBlobs(const std::vector<uint32_t>& appIds) {
+static void MigrateLegacyBlobs(const std::vector<uint32_t>& appIds,
+                               const std::atomic<bool>* stopping) {
     CloudPullLegacyFn pullLegacy;
     std::vector<uint32_t> missing;
     {
@@ -1824,6 +1829,7 @@ static void MigrateLegacyBlobs(const std::vector<uint32_t>& appIds) {
         }
     }
     for (uint32_t appId : missing) {
+        if (SeedStopping(stopping)) return;
         std::string legacy = pullLegacy(appId);   // network, off-lock
         if (legacy.empty()) continue;
         AppStats parsed;
@@ -1900,7 +1906,8 @@ static void ApplyLegacyPlaytime(uint32_t appId, uint32_t mins,
 }
 
 // Migrate 2.2.x Playtime/*.bin format. Done-marker prevents reruns.
-static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
+static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds,
+                                      const std::atomic<bool>* stopping) {
     std::error_code ec;
 
     // Pass 1: global marker for local scan. Pass 2: per-app markers for cloud.
@@ -1917,6 +1924,7 @@ static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
                 / std::to_string(currentAcct) / "0" / "Playtime";
             if (fs::exists(ptDir, ec)) {
                 for (auto& entry : fs::directory_iterator(ptDir, ec)) {
+                    if (SeedStopping(stopping)) return;
                     if (!entry.is_regular_file()) continue;
                     const std::string fn = entry.path().filename().string();
                     bool isBin = entry.path().extension() == ".bin";
@@ -1969,6 +1977,7 @@ static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
     // frozen, so a missing bin won't appear.
     static const int kMaxTries = 8;
     for (uint32_t appId : appIds) {
+        if (SeedStopping(stopping)) return;
         if (appId == 0) continue;
         fs::path mk = cloudMarkerDir / std::to_string(appId);
         int tries = 0;
@@ -1982,6 +1991,7 @@ static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
             }
         }
         std::string json = pullPt(appId);          // network, off-lock
+        if (SeedStopping(stopping)) return;
         if (json.empty()) {
             if (++tries >= kMaxTries)
                 std::ofstream(mk.string(), std::ios::trunc) << "done";  // give up
@@ -1997,11 +2007,13 @@ static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
     }
 }
 
-void SeedApps(const std::vector<uint32_t>& appIds) {
+static bool SeedAppsImpl(const std::vector<uint32_t>& appIds, const std::atomic<bool>* stopping) {
+    if (SeedStopping(stopping)) return false;
     // Wait for g_diskAccountId so disk I/O is account-scoped (bg thread, safe to block).
     if (g_diskAccountId == 0) {
         uint32_t acct = 0;
         for (int i = 0; i < 60; ++i) {
+            if (SeedStopping(stopping)) return false;
             {
                 std::lock_guard<std::mutex> lock(g_mutex);
                 if (g_accountIdProvider) acct = g_accountIdProvider();
@@ -2011,9 +2023,7 @@ void SeedApps(const std::vector<uint32_t>& appIds) {
         }
         if (acct == 0) {
             LOG("[Stats] SeedApps: no accountId after 30 s, aborting");
-            g_seedDone.store(true, std::memory_order_release);
-            g_seedCv.notify_all();
-            return;
+            return false;
         }
         ResetForAccountSwitch(acct);
     }
@@ -2026,11 +2036,14 @@ void SeedApps(const std::vector<uint32_t>& appIds) {
     // One network read for the whole account, not one per app. GetOrCreate then
     // reads each app's entry from the cached blob (no further network).
     RefreshCloudBlobCache();
+    if (SeedStopping(stopping)) return false;
     // Recover stats stranded under the old per-app cloud layout.
-    MigrateLegacyBlobs(appIds);
+    MigrateLegacyBlobs(appIds, stopping);
+    if (SeedStopping(stopping)) return false;
     // Recover playtime from the very first 2.2.x per-app .bin format (local+cloud).
-    MigrateLegacyPlaytimeBins(appIds);
+    MigrateLegacyPlaytimeBins(appIds, stopping);
     for (uint32_t appId : appIds) {
+        if (SeedStopping(stopping)) return false;
         if (appId == 0) continue;
         GetOrCreate(appId);  // merges cached cloud blob + imports native + loads local
     }
@@ -2039,6 +2052,7 @@ void SeedApps(const std::vector<uint32_t>& appIds) {
     if (MetadataSync::syncAchievements.load(std::memory_order_relaxed)) {
         std::lock_guard<std::mutex> lock(g_mutex);
         for (uint32_t appId : appIds) {
+            if (SeedStopping(stopping)) return false;
             if (appId == 0) continue;
             auto it = g_cache.find(appId);
             if (it != g_cache.end())
@@ -2047,12 +2061,23 @@ void SeedApps(const std::vector<uint32_t>& appIds) {
     }
     // SeedApps also materializes imported native stats; flush the account blob
     // once so newly-seeded local stats reach the cloud.
+    if (SeedStopping(stopping)) return false;
     PushAccountBlobIfDirty();
+    return true;
+}
 
+void SeedApps(const std::vector<uint32_t>& appIds, const std::atomic<bool>* stopping) {
+    const bool seeded = SeedAppsImpl(appIds, stopping);
     // Signal waiters (HandleGetUserStats blocks until seed completes).
-    g_seedDone.store(true, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(g_seedMutex);
+        g_seedDone.store(true, std::memory_order_release);
+    }
     g_seedCv.notify_all();
-    LOG("[Stats] SeedApps complete (%zu app(s)); waiters released", appIds.size());
+    if (seeded)
+        LOG("[Stats] SeedApps complete (%zu app(s)); waiters released", appIds.size());
+    else if (SeedStopping(stopping))
+        LOG("[Stats] SeedApps stopped during shutdown");
 }
 
 bool WaitForSeed(uint32_t timeoutMs) {
